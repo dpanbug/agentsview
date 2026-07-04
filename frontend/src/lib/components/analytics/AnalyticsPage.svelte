@@ -314,6 +314,7 @@
   $effect(() => {
     const headerProject = sessions.filters.project;
     const headerMachine = sessions.filters.machine;
+    const headerBranch = sessions.filters.branch;
     const headerAgent = sessions.filters.agent;
     const headerTermination = sessions.filters.termination;
     const headerRecentlyActive = sessions.filters.recentlyActive;
@@ -326,6 +327,7 @@
 
     const curProject = untrack(() => analytics.project);
     const curMachine = untrack(() => analytics.machine);
+    const curBranch = untrack(() => analytics.branch);
     const curAgent = untrack(() => analytics.agent);
     const curTermination = untrack(() => analytics.termination);
     const curRecentlyActive = untrack(
@@ -351,6 +353,10 @@
     }
     if (curMachine !== headerMachine) {
       analytics.machine = headerMachine;
+      changed = true;
+    }
+    if (curBranch !== headerBranch) {
+      analytics.branch = headerBranch;
       changed = true;
     }
     if (curAgent !== headerAgent) {
