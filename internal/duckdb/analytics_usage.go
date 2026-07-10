@@ -3457,19 +3457,20 @@ func duckUsageCTEFromRaw(
 }
 
 type duckUsageAggregateRow struct {
-	date          string
-	sessionID     string
-	project       string
-	agent         string
-	model         string
-	gitBranch     string
-	displayName   string
-	startedAt     string
-	inputTok      int
-	outputTok     int
-	cacheCr       int
-	cacheRd       int
-	billableInput int
+	date             string
+	sessionID        string
+	project          string
+	agent            string
+	model            string
+	gitBranch        string
+	branchAttributed bool
+	displayName      string
+	startedAt        string
+	inputTok         int
+	outputTok        int
+	cacheCr          int
+	cacheRd          int
+	billableInput    int
 	// Output-rate billable tokens. SQL folds reasoning-only rows into this
 	// value before grouping because reasoning is otherwise a row-level choice.
 	billableOutput   int
@@ -3604,15 +3605,18 @@ func (s *Store) dailyUsageAggregateRows(
 ) ([]duckUsageAggregateRow, error) {
 	cte, args := duckDailyUsageCTE(f)
 	branchSelect := "'' AS git_branch"
+	branchAttributedSelect := "FALSE AS branch_attributed"
 	branchGroup := ""
 	branchOrder := ""
 	if f.Breakdowns {
-		branchSelect = "git_branch"
-		branchGroup = ", git_branch"
-		branchOrder = ", git_branch ASC"
+		branchSelect = "CASE WHEN source = 'cursor' THEN '' ELSE git_branch END AS git_branch"
+		branchAttributedSelect = "source != 'cursor' AS branch_attributed"
+		branchGroup = ", CASE WHEN source = 'cursor' THEN '' ELSE git_branch END, source != 'cursor'"
+		branchOrder = ", git_branch ASC, branch_attributed ASC"
 	}
 	query := cte + `
 		SELECT local_date, project, agent, model, ` + branchSelect + `,
+			` + branchAttributedSelect + `,
 			SUM(input_tokens_norm) AS input_tokens,
 			SUM(output_tokens_norm) AS output_tokens,
 			SUM(cache_create_norm) AS cache_creation_tokens,
@@ -3625,9 +3629,9 @@ func (s *Store) dailyUsageAggregateRows(
 				END) AS billable_output_tokens,
 				CAST(0 AS BIGINT) AS billable_reasoning_tokens,
 				SUM(CASE WHEN cost_usd IS NULL THEN cache_create_norm ELSE 0 END) AS billable_cache_creation_tokens,
-				SUM(CASE WHEN cost_usd IS NULL THEN cache_read_norm ELSE 0 END) AS billable_cache_read_tokens,
-				COALESCE(SUM(cost_usd), 0) AS explicit_cost,
-				COUNT(cost_usd) AS reported_cost_rows
+			SUM(CASE WHEN cost_usd IS NULL THEN cache_read_norm ELSE 0 END) AS billable_cache_read_tokens,
+			COALESCE(SUM(cost_usd), 0) AS explicit_cost,
+			COUNT(cost_usd) AS reported_cost_rows
 		FROM usage_localized
 		GROUP BY local_date, project, agent, model` + branchGroup + `
 		ORDER BY local_date ASC, project ASC, agent ASC, model ASC` + branchOrder
@@ -3640,7 +3644,7 @@ func (s *Store) dailyUsageAggregateRows(
 	for rows.Next() {
 		var r duckUsageAggregateRow
 		if err := rows.Scan(
-			&r.date, &r.project, &r.agent, &r.model, &r.gitBranch,
+			&r.date, &r.project, &r.agent, &r.model, &r.gitBranch, &r.branchAttributed,
 			&r.inputTok, &r.outputTok, &r.cacheCr, &r.cacheRd,
 			&r.billableInput, &r.billableOutput, &r.billableReason,
 			&r.billableCacheCr, &r.billableCacheRd,
@@ -3666,17 +3670,25 @@ func (s *Store) GetDailyUsage(
 		return db.DailyUsageResult{}, err
 	}
 	type usageAccumKey struct {
-		date      string
-		project   string
-		agent     string
-		model     string
-		gitBranch string
+		date             string
+		project          string
+		agent            string
+		model            string
+		gitBranch        string
+		branchAttributed bool
 	}
 	accum := map[usageAccumKey]*db.UsageBucket{}
 	projectLabels := map[string]bool{}
 	totalSavings := 0.0
 	for _, r := range rows {
-		key := usageAccumKey{date: r.date, project: r.project, agent: r.agent, model: r.model, gitBranch: r.gitBranch}
+		key := usageAccumKey{
+			date:             r.date,
+			project:          r.project,
+			agent:            r.agent,
+			model:            r.model,
+			gitBranch:        r.gitBranch,
+			branchAttributed: r.branchAttributed,
+		}
 		if r.project != "" {
 			projectLabels[r.project] = true
 		}
@@ -3728,10 +3740,12 @@ func (s *Store) GetDailyUsage(
 		if f.Breakdowns {
 			db.AddUsageBucket(day.projects, key.project, *b)
 			db.AddUsageBucket(day.agents, key.agent, *b)
-			db.AddUsageBucket(day.branches, branchMapKey{
-				project: key.project,
-				branch:  key.gitBranch,
-			}, *b)
+			if key.branchAttributed {
+				db.AddUsageBucket(day.branches, branchMapKey{
+					project: key.project,
+					branch:  key.gitBranch,
+				}, *b)
+			}
 		}
 	}
 
