@@ -28,8 +28,8 @@ require (
 	go.kenn.io/kit v0.7.1
 	golang.org/x/mod v0.37.0
 	golang.org/x/perf v0.0.0-20260615155930-9e4b9ddef5b6
-	golang.org/x/sync v0.21.0
-	golang.org/x/sys v0.46.0
+	golang.org/x/sync v0.22.0
+	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.44.0
 	modernc.org/sqlite v1.53.0
 )
