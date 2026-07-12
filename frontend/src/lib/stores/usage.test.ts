@@ -1540,6 +1540,7 @@ describe("buildUsageUrlParams", () => {
       isPinned: false,
       windowDays: 30,
       excludedProjects: "",
+      excludedProjectKeys: "",
       excludedAgents: "",
       selectedGitBranch: tokens,
       excludedModels: "",
